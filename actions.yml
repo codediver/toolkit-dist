@@ -1,0 +1,35 @@
+name: Check PR from Fork
+on:
+  pull_request_target:
+    types: [opened, synchronize]
+
+jobs:
+  check-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR code from fork
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Fetch base branch
+        run: |
+          git remote add upstream https://github.com/${{ github.repository }}.git
+          git fetch upstream ${{ github.event.pull_request.base.ref }}
+
+      - name: Get changed files
+        id: changed-files
+        uses: tj-actions/changed-files@v41
+        with:
+          base_sha: ${{ github.event.pull_request.base.sha }}
+          sha: ${{ github.event.pull_request.head.sha }}
+
+      - name: Read changed files content
+        run: |
+          for file in ${{ steps.changed-files.outputs.all_changed_files }}; do
+            echo "=== $file ==="
+            cat "$file"
+            echo ""
+          done
