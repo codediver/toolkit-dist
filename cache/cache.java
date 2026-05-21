@@ -16,12 +16,24 @@ import java.util.function.Supplier;
  * </pre>
  *
  * <ul>
- *   <li><b>HEALTHY</b>  — Latest value cached, refreshing every {@code normalTtl}.</li>
- *   <li><b>RETRYING</b> — Last refresh failed. Cached value still served; scheduler
- *       retries every {@code retryInterval}.</li>
+ *   <li><b>HEALTHY</b>  — Latest value cached. Refreshing every {@code normalTtl}.</li>
+ *   <li><b>RETRYING</b> — Last refresh failed. Cached value still served.
+ *       Refreshing every {@code retryInterval}.</li>
  *   <li><b>FAILED</b>   — {@code maxConsecutiveFailures} reached. {@link #get()} throws
- *       {@link KekRefreshException}. The scheduler continues retrying — a successful
- *       refresh transitions back to HEALTHY.</li>
+ *       {@link KekRefreshException}. Refreshing every {@code recoveryRetryInterval}
+ *       (typically much shorter than {@code retryInterval}) so a healthy upstream
+ *       is detected promptly. A successful refresh transitions back to HEALTHY.</li>
+ * </ul>
+ *
+ * <h2>Why three intervals</h2>
+ * <ul>
+ *   <li>{@code normalTtl} (e.g. 30 days) — the happy-path freshness window.</li>
+ *   <li>{@code retryInterval} (e.g. 1 hour) — while stale-but-usable; we can afford
+ *       to be patient because callers still get a working value.</li>
+ *   <li>{@code recoveryRetryInterval} (e.g. 5 seconds) — once we are FAILED, callers
+ *       are seeing exceptions and we want to detect recovery quickly. The single
+ *       scheduler thread means there is no stampede risk regardless of how short
+ *       this interval is.</li>
  * </ul>
  *
  * <h2>Design</h2>
@@ -47,21 +59,21 @@ import java.util.function.Supplier;
  * <ol>
  *   <li><b>One-cycle lag near the threshold.</b> A caller may read {@code failures}
  *       just before the scheduler increments past the threshold, pass the check, and
- *       receive the stale value once more. With {@code retryInterval} on the order of
- *       minutes or hours this is negligible.</li>
+ *       receive the stale value once more. Given typical retry intervals (minutes or
+ *       hours) this is negligible.</li>
  *   <li><b>Cold-start writes are eventually consistent.</b> When {@code asyncLoad}
  *       finishes (success or failure) it hands off to the scheduler via
  *       {@code scheduler.execute}. The {@code failures} update therefore happens
- *       <em>after</em> the load result has already been returned to the calling
- *       thread. Concurrent cold-start callers may each fire a fresh load before the
- *       counter catches up. In practice the scheduler retry interval dominates the
- *       call rate, so the loader is invoked rarely after the initial period.</li>
+ *       <em>after</em> the load result has been returned to the caller. Concurrent
+ *       cold-start callers may each fire a fresh load before the counter catches
+ *       up. In practice the scheduler retry interval dominates the call rate after
+ *       the initial period.</li>
  * </ol>
  *
  * Once {@code failures >= maxConsecutiveFailures} is observed, {@code get()}
  * short-circuits with {@link KekRefreshException} and the loader is no longer
- * invoked from the {@code get()} path. The scheduler continues retrying in the
- * background — this is what allows recovery.
+ * invoked from the {@code get()} path. The scheduler continues retrying on
+ * {@code recoveryRetryInterval} — this is what allows fast recovery.
  *
  * <h2>Shutdown</h2>
  * {@link #close()} requests an orderly shutdown and waits up to 5 seconds for any
@@ -76,6 +88,7 @@ public class KekCache<V> implements AutoCloseable {
     private final Supplier<V>                  loader;
     private final long                         normalTtlMs;
     private final long                         retryIntervalMs;
+    private final long                         recoveryRetryIntervalMs;
     private final int                          maxConsecutiveFailures;
     private final AsyncLoadingCache<String, V> cache;
     private final ScheduledExecutorService     scheduler;
@@ -100,10 +113,11 @@ public class KekCache<V> implements AutoCloseable {
     // -------------------------------------------------------------------------
 
     private KekCache(Builder<V> b) {
-        this.loader                 = b.loader;
-        this.normalTtlMs            = b.normalTtl.toMillis();
-        this.retryIntervalMs        = b.retryInterval.toMillis();
-        this.maxConsecutiveFailures = b.maxConsecutiveFailures;
+        this.loader                  = b.loader;
+        this.normalTtlMs             = b.normalTtl.toMillis();
+        this.retryIntervalMs         = b.retryInterval.toMillis();
+        this.recoveryRetryIntervalMs = b.recoveryRetryInterval.toMillis();
+        this.maxConsecutiveFailures  = b.maxConsecutiveFailures;
 
         this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "kek-refresh");
@@ -124,16 +138,14 @@ public class KekCache<V> implements AutoCloseable {
 
                     final boolean ok = (v != null);
 
-                    // Hand off to the scheduler — this is the ONLY place the refresh
-                    // cycle begins. Note: this happens asynchronously with respect to
-                    // the caller; see "Approximate threshold detection" in the class docs.
+                    // Hand off to the scheduler — the only place the refresh cycle begins.
                     scheduler.execute(() -> {
                         if (ok) {
                             failures = 0;
                             scheduleNext(normalTtlMs);
                         } else {
                             failures++;
-                            scheduleNext(retryIntervalMs);
+                            scheduleNext(intervalForCurrentState());
                         }
                     });
 
@@ -153,16 +165,7 @@ public class KekCache<V> implements AutoCloseable {
      * <p>Blocks only on the very first call (cold start). Concurrent cold callers are
      * coalesced by Caffeine onto a single load. Subsequent calls return instantly.
      *
-     * <p><b>Behaviour during outages:</b>
-     * <ul>
-     *   <li>Initial load failure → {@code KekRefreshException} wrapping the cause.</li>
-     *   <li>HEALTHY/RETRYING → cached value returned. The scheduler may not yet have
-     *       observed the latest refresh outcome (see class docs).</li>
-     *   <li>FAILED ({@code failures >= maxConsecutiveFailures}) → {@code KekRefreshException}.
-     *       No stale value is returned; callers must treat this as an outage.</li>
-     * </ul>
-     *
-     * @throws KekRefreshException if the cache is in FAILED state, or if the
+     * @throws KekRefreshException if the cache is in FAILED state or if the
      *         cold-start load fails. Carries no value.
      */
     public V get() {
@@ -198,6 +201,15 @@ public class KekCache<V> implements AutoCloseable {
     // Scheduler thread — sole writer
     // -------------------------------------------------------------------------
 
+    /**
+     * Selects the right interval based on current failure count.
+     * Called only on the scheduler thread.
+     */
+    private long intervalForCurrentState() {
+        if (failures >= maxConsecutiveFailures) return recoveryRetryIntervalMs;
+        return retryIntervalMs;
+    }
+
     /** Cancel any pending refresh and schedule a new one. Runs on the scheduler thread. */
     private void scheduleNext(long delayMs) {
         if (pending != null) pending.cancel(false);
@@ -214,6 +226,11 @@ public class KekCache<V> implements AutoCloseable {
      * <p>The {@code finally} block structurally guarantees the refresh cycle never
      * dies silently: every exit path reschedules, regardless of whether the loader
      * returned normally, returned null, or threw.
+     *
+     * <p>The next interval is chosen by {@link #intervalForCurrentState()} based on
+     * the post-update failure count. So crossing the threshold switches the cycle
+     * to the fast recovery interval automatically, and a successful refresh resets
+     * to the normal TTL.
      */
     private void refresh() {
         boolean succeeded = false;
@@ -229,7 +246,7 @@ public class KekCache<V> implements AutoCloseable {
         } catch (Exception e) {
             failures++;
         } finally {
-            scheduleNext(succeeded ? normalTtlMs : retryIntervalMs);
+            scheduleNext(succeeded ? normalTtlMs : intervalForCurrentState());
         }
     }
 
@@ -257,20 +274,26 @@ public class KekCache<V> implements AutoCloseable {
         private Supplier<V> loader;
         private Duration    normalTtl              = Duration.ofDays(30);
         private Duration    retryInterval          = Duration.ofHours(1);
+        private Duration    recoveryRetryInterval  = Duration.ofSeconds(5);
         private int         maxConsecutiveFailures = 3;
 
-        public Builder<V> loader(Supplier<V> l)             { this.loader = l; return this; }
-        public Builder<V> normalTtl(Duration d)             { this.normalTtl = d; return this; }
-        public Builder<V> retryInterval(Duration d)         { this.retryInterval = d; return this; }
-        public Builder<V> maxConsecutiveFailures(int n)     { this.maxConsecutiveFailures = n; return this; }
+        public Builder<V> loader(Supplier<V> l)                 { this.loader = l; return this; }
+        public Builder<V> normalTtl(Duration d)                 { this.normalTtl = d; return this; }
+        public Builder<V> retryInterval(Duration d)             { this.retryInterval = d; return this; }
+        public Builder<V> recoveryRetryInterval(Duration d)     { this.recoveryRetryInterval = d; return this; }
+        public Builder<V> maxConsecutiveFailures(int n)         { this.maxConsecutiveFailures = n; return this; }
 
         public KekCache<V> build() {
             if (loader == null)
                 throw new IllegalStateException("loader is required");
-            if (normalTtl.toMillis() < 1 || retryInterval.toMillis() < 1)
+            if (normalTtl.toMillis() < 1
+                    || retryInterval.toMillis() < 1
+                    || recoveryRetryInterval.toMillis() < 1)
                 throw new IllegalArgumentException("durations must be at least 1ms");
             if (!retryInterval.minus(normalTtl).isNegative())
                 throw new IllegalArgumentException("retryInterval should be shorter than normalTtl");
+            if (!recoveryRetryInterval.minus(retryInterval).isNegative())
+                throw new IllegalArgumentException("recoveryRetryInterval should be shorter than retryInterval");
             if (maxConsecutiveFailures < 1)
                 throw new IllegalArgumentException("maxConsecutiveFailures must be >= 1");
             return new KekCache<>(this);
