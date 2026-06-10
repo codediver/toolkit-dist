@@ -1,0 +1,368 @@
+{
+  "organization": {
+    "id": "a1b2c3d4-0000-4000-8000-0000acme0001",
+    "display_name": "Acme Corp"
+  },
+  "identity_providers": [
+    {
+      "id": "op-okta01",
+      "display_name": "Okta Production",
+      "description": "Workforce identity for data platform workloads",
+      "issuer": "https://acme.okta.com",
+      "jwks_uri": "https://acme.okta.com/oauth2/v1/keys"
+    },
+    {
+      "id": "op-azure1",
+      "display_name": "Azure AD CI/CD",
+      "description": "Entra ID tenant for build and deployment pipelines",
+      "issuer": "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0",
+      "jwks_uri": "https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/discovery/v2.0/keys"
+    }
+  ],
+  "identity_pools": [
+    {
+      "id": "pool-dteng1",
+      "display_name": "data-engineering",
+      "description": "Data engineering team workloads",
+      "identity_claim": "claims.sub",
+      "filter": "claims.groups.exists(g, g == \"data-engineering\")",
+      "provider_id": "op-okta01"
+    },
+    {
+      "id": "pool-anlys1",
+      "display_name": "analytics-team",
+      "description": "Analytics notebooks and dashboards",
+      "identity_claim": "claims.sub",
+      "filter": "claims.groups.exists(g, g == \"analytics\")",
+      "provider_id": "op-okta01"
+    },
+    {
+      "id": "pool-cicd01",
+      "display_name": "cicd-prod-deployer",
+      "description": "Production deployment pipeline",
+      "identity_claim": "claims.azp",
+      "filter": "claims.appid == \"9d9e9f00-prod-cicd-app\"",
+      "provider_id": "op-azure1"
+    },
+    {
+      "id": "pool-flink1",
+      "display_name": "flink-jobs",
+      "description": "Flink streaming jobs",
+      "identity_claim": "claims.azp",
+      "filter": "claims.appid == \"7a7b7c00-flink-app\"",
+      "provider_id": "op-azure1"
+    }
+  ],
+  "role_bindings": [
+    {
+      "id": "rb-mock001",
+      "principal": "User:u-alice01",
+      "role_name": "OrganizationAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"
+    },
+    {
+      "id": "rb-mock002",
+      "principal": "User:u-heidi01",
+      "role_name": "Operator",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"
+    },
+    {
+      "id": "rb-mock003",
+      "principal": "User:sa-monitr1",
+      "role_name": "MetricsViewer",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"
+    },
+    {
+      "id": "rb-mock004",
+      "principal": "User:u-frank01",
+      "role_name": "MetricsViewer",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"
+    },
+    {
+      "id": "rb-mock005",
+      "principal": "User:u-bob0001",
+      "role_name": "EnvironmentAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001"
+    },
+    {
+      "id": "rb-mock006",
+      "principal": "User:sa-cicd001",
+      "role_name": "EnvironmentAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001"
+    },
+    {
+      "id": "rb-mock007",
+      "principal": "User:pool-cicd01",
+      "role_name": "EnvironmentAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001"
+    },
+    {
+      "id": "rb-mock008",
+      "principal": "User:u-dave001",
+      "role_name": "EnvironmentAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-dev001"
+    },
+    {
+      "id": "rb-mock009",
+      "principal": "User:pool-dteng1",
+      "role_name": "DeveloperManage",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001"
+    },
+    {
+      "id": "rb-mock010",
+      "principal": "User:u-carol01",
+      "role_name": "CloudClusterAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001"
+    },
+    {
+      "id": "rb-mock011",
+      "principal": "User:u-carol01",
+      "role_name": "CloudClusterAdmin",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002"
+    },
+    {
+      "id": "rb-mock012",
+      "principal": "User:sa-connct1",
+      "role_name": "DeveloperManage",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001/cloud-cluster=lkc-stg001"
+    },
+    {
+      "id": "rb-mock013",
+      "principal": "User:u-erin001",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-dev001/cloud-cluster=lkc-dev001"
+    },
+    {
+      "id": "rb-mock014",
+      "principal": "User:sa-orders1",
+      "role_name": "DeveloperWrite",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=orders-*"
+    },
+    {
+      "id": "rb-mock015",
+      "principal": "User:sa-orders1",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=inventory.events"
+    },
+    {
+      "id": "rb-mock016",
+      "principal": "User:sa-paymnt1",
+      "role_name": "ResourceOwner",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=payments.transactions"
+    },
+    {
+      "id": "rb-mock017",
+      "principal": "User:u-grace01",
+      "role_name": "ResourceOwner",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=payments-*"
+    },
+    {
+      "id": "rb-mock018",
+      "principal": "User:sa-anlyt01",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/topic=*"
+    },
+    {
+      "id": "rb-mock019",
+      "principal": "User:pool-anlys1",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/topic=events-*"
+    },
+    {
+      "id": "rb-mock020",
+      "principal": "User:pool-flink1",
+      "role_name": "DeveloperWrite",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/topic=flink.derived-*"
+    },
+    {
+      "id": "rb-mock021",
+      "principal": "User:u-dave001",
+      "role_name": "DeveloperWrite",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001/cloud-cluster=lkc-stg001/kafka=lkc-stg001/topic=*"
+    },
+    {
+      "id": "rb-mock022",
+      "principal": "User:sa-anlyt01",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/group=analytics-*"
+    },
+    {
+      "id": "rb-mock023",
+      "principal": "User:sa-orders1",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/group=orders-service"
+    },
+    {
+      "id": "rb-mock024",
+      "principal": "User:pool-flink1",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/group=flink-*"
+    },
+    {
+      "id": "rb-mock025",
+      "principal": "User:sa-orders1",
+      "role_name": "DeveloperWrite",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/schema-registry=lsrc-prd001/subject=orders-*"
+    },
+    {
+      "id": "rb-mock026",
+      "principal": "User:pool-anlys1",
+      "role_name": "DeveloperRead",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/schema-registry=lsrc-prd001/subject=*"
+    },
+    {
+      "id": "rb-mock027",
+      "principal": "User:u-grace01",
+      "role_name": "DataSteward",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001"
+    },
+    {
+      "id": "rb-mock028",
+      "principal": "User:sa-paymnt1",
+      "role_name": "DeveloperWrite",
+      "crn_pattern": "crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/transactional-id=payments-tx-*"
+    }
+  ],
+  "users": [
+    {
+      "id": "u-alice01",
+      "email": "alice@acme.example",
+      "full_name": "Alice Anders",
+      "auth_type": "AUTH_TYPE_SSO"
+    },
+    {
+      "id": "u-bob0001",
+      "email": "bob@acme.example",
+      "full_name": "Bob Baker",
+      "auth_type": "AUTH_TYPE_SSO"
+    },
+    {
+      "id": "u-carol01",
+      "email": "carol@acme.example",
+      "full_name": "Carol Chen",
+      "auth_type": "AUTH_TYPE_SSO"
+    },
+    {
+      "id": "u-dave001",
+      "email": "dave@acme.example",
+      "full_name": "Dave Diaz",
+      "auth_type": "AUTH_TYPE_LOCAL"
+    },
+    {
+      "id": "u-erin001",
+      "email": "erin@acme.example",
+      "full_name": "Erin Engel",
+      "auth_type": "AUTH_TYPE_SSO"
+    },
+    {
+      "id": "u-frank01",
+      "email": "frank@acme.example",
+      "full_name": "Frank Fox",
+      "auth_type": "AUTH_TYPE_LOCAL"
+    },
+    {
+      "id": "u-grace01",
+      "email": "grace@acme.example",
+      "full_name": "Grace Gupta",
+      "auth_type": "AUTH_TYPE_SSO"
+    },
+    {
+      "id": "u-heidi01",
+      "email": "heidi@acme.example",
+      "full_name": "Heidi Huang",
+      "auth_type": "AUTH_TYPE_SSO"
+    }
+  ],
+  "service_accounts": [
+    {
+      "id": "sa-orders1",
+      "display_name": "orders-service",
+      "description": "Order processing microservice"
+    },
+    {
+      "id": "sa-paymnt1",
+      "display_name": "payments-service",
+      "description": "Payment processing microservice"
+    },
+    {
+      "id": "sa-anlyt01",
+      "display_name": "analytics-readonly",
+      "description": "Read-only analytics consumers"
+    },
+    {
+      "id": "sa-connct1",
+      "display_name": "connect-cluster",
+      "description": "Managed connectors runtime"
+    },
+    {
+      "id": "sa-cicd001",
+      "display_name": "ci-pipeline",
+      "description": "Terraform / CI automation"
+    },
+    {
+      "id": "sa-monitr1",
+      "display_name": "monitoring-agent",
+      "description": "Metrics scraper for Datadog"
+    }
+  ],
+  "environments": [
+    {
+      "id": "env-dev001",
+      "display_name": "dev"
+    },
+    {
+      "id": "env-stg001",
+      "display_name": "staging"
+    },
+    {
+      "id": "env-prd001",
+      "display_name": "production"
+    }
+  ],
+  "clusters": [
+    {
+      "id": "lkc-dev001",
+      "spec": {
+        "display_name": "dev-sandbox",
+        "cloud": "AWS",
+        "region": "us-east-1",
+        "environment": {
+          "id": "env-dev001"
+        }
+      }
+    },
+    {
+      "id": "lkc-stg001",
+      "spec": {
+        "display_name": "staging-core",
+        "cloud": "AWS",
+        "region": "us-east-1",
+        "environment": {
+          "id": "env-stg001"
+        }
+      }
+    },
+    {
+      "id": "lkc-prd001",
+      "spec": {
+        "display_name": "prod-core",
+        "cloud": "AWS",
+        "region": "us-east-1",
+        "environment": {
+          "id": "env-prd001"
+        }
+      }
+    },
+    {
+      "id": "lkc-prd002",
+      "spec": {
+        "display_name": "prod-analytics",
+        "cloud": "GCP",
+        "region": "us-central1",
+        "environment": {
+          "id": "env-prd001"
+        }
+      }
+    }
+  ]
+}

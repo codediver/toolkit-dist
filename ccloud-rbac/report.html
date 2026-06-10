@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Confluent Cloud RBAC Report</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --border: #e3e6ea;
+    --text: #1c2430; --muted: #69707d; --accent: #1f6feb;
+    --admin: #c9303e; --write: #b06f00; --read: #1a7f37; --other: #57606a; --none: #9aa1aa;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+  code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+
+  header { background: #10243e; color: #fff; padding: 18px 28px; }
+  header h1 { margin: 0 0 2px; font-size: 19px; font-weight: 600; }
+  header .sub { color: #9fb3cc; font-size: 12.5px; }
+
+  nav { display: flex; gap: 4px; padding: 0 20px; background: var(--panel);
+        border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 5; }
+  nav button { border: 0; background: none; padding: 12px 14px; font: inherit; font-weight: 500;
+               color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+  nav button:hover { color: var(--text); }
+
+  main { max-width: 1280px; margin: 0 auto; padding: 20px 24px 60px; }
+  section.tab { display: none; }
+  section.tab.active { display: block; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; margin-bottom: 22px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 13px 15px; }
+  .card .num { font-size: 24px; font-weight: 650; }
+  .card .lbl { color: var(--muted); font-size: 12px; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+           padding: 16px 18px; margin-bottom: 18px; }
+  .panel h2 { margin: 0 0 10px; font-size: 15px; }
+  .panel h2 .hint { font-weight: 400; color: var(--muted); font-size: 12px; margin-left: 8px; }
+
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; align-items: center; }
+  .toolbar input[type=search] { flex: 1 1 220px; min-width: 180px; padding: 7px 10px;
+      border: 1px solid var(--border); border-radius: 6px; font: inherit; }
+  .toolbar select { padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px;
+      font: inherit; background: var(--panel); color: var(--text); }
+  .toolbar .count { color: var(--muted); font-size: 12.5px; margin-left: auto; white-space: nowrap; }
+
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .03em; color: var(--muted);
+       cursor: pointer; user-select: none; white-space: nowrap; }
+  th .arrow { opacity: .8; }
+  tbody tr:hover { background: #f0f4f9; }
+  tr.grouphdr td { background: #eef1f5; font-weight: 600; border-top: 1px solid var(--border); }
+  tr.grouphdr .gcount { color: var(--muted); font-weight: 400; margin-left: 6px; }
+  td .sub { color: var(--muted); font-size: 12px; }
+  .nowrap { white-space: nowrap; }
+
+  .badge { display: inline-block; padding: 1.5px 8px; border-radius: 10px; font-size: 11.5px;
+           font-weight: 600; border: 1px solid transparent; }
+  .acc-admin { color: var(--admin); background: #fdebed; border-color: #f3c2c8; }
+  .acc-write { color: var(--write); background: #fff3df; border-color: #f0d8a8; }
+  .acc-read  { color: var(--read);  background: #e7f6ec; border-color: #bfe3cb; }
+  .acc-other { color: var(--other); background: #eef0f2; border-color: #d7dbe0; }
+  .acc-none  { color: var(--none);  background: #f2f3f5; border-color: #e0e2e6; }
+  .pt-user            { color: #1f6feb; background: #e7f0fe; border-color: #bcd3f7; }
+  .pt-service-account { color: #7d3ec1; background: #f3ecfb; border-color: #ddc8f2; }
+  .pt-identity-pool   { color: #0d7d8a; background: #e4f6f8; border-color: #b8e3e8; }
+  .pt-sso-group       { color: #b35900; background: #fff0e1; border-color: #f2d4ae; }
+  .pt-unknown         { color: var(--other); background: #eef0f2; border-color: #d7dbe0; }
+
+  .provider { border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+  .provider > .phead { padding: 13px 16px; background: #f1f4f8; border-bottom: 1px solid var(--border); }
+  .provider > .phead h3 { margin: 0; font-size: 14.5px; }
+  .provider > .phead .meta { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  .pools { padding: 12px 16px; display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+  .pool { border: 1px solid var(--border); border-radius: 7px; padding: 11px 13px; background: #fcfdfe; }
+  .pool h4 { margin: 0 0 4px; font-size: 13.5px; }
+  .pool .kv { margin: 5px 0 0; font-size: 12px; color: var(--muted); }
+  .pool .kv code { background: #eef1f5; padding: 1px 5px; border-radius: 4px; word-break: break-all; }
+  .pool a { color: var(--accent); font-size: 12px; text-decoration: none; }
+  .pool a:hover { text-decoration: underline; }
+
+  tr.expand td { background: #fafbfc; padding: 4px 10px 12px 28px; }
+  .minitable { width: 100%; font-size: 12.5px; }
+  .minitable td, .minitable th { padding: 4px 8px; border-bottom: 1px solid #edeff2; }
+  .clickable { cursor: pointer; }
+  .empty { color: var(--muted); text-align: center; padding: 22px 0; }
+  .crn { color: var(--muted); font-size: 11px; word-break: break-all; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Confluent Cloud RBAC Report</h1>
+  <div class="sub" id="hdr-sub"></div>
+</header>
+<nav id="tabs">
+  <button data-tab="overview" class="active">Overview</button>
+  <button data-tab="bindings">Role Bindings</button>
+  <button data-tab="principals">Principals</button>
+  <button data-tab="identity">Identity Providers</button>
+</nav>
+<main>
+  <section class="tab active" id="tab-overview">
+    <div class="cards" id="ov-cards"></div>
+    <div class="panel">
+      <h2>Admin access at a glance<span class="hint">principals holding admin-level roles</span></h2>
+      <div id="ov-admins"></div>
+    </div>
+    <div class="panel">
+      <h2>Environments &amp; clusters</h2>
+      <div id="ov-envs"></div>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-bindings">
+    <div class="panel">
+      <h2>Role bindings<span class="hint">who can do what, where — click headers to sort</span></h2>
+      <div class="toolbar">
+        <input type="search" id="b-search" placeholder="Search principal, role, resource, CRN…">
+        <select id="b-access"><option value="">Access: all</option>
+          <option value="admin">admin</option><option value="write">write</option>
+          <option value="read">read</option><option value="other">other</option></select>
+        <select id="b-ptype"><option value="">Principal: all</option>
+          <option value="user">users</option><option value="service-account">service accounts</option>
+          <option value="identity-pool">identity pools</option><option value="sso-group">SSO groups</option>
+          <option value="unknown">unknown</option></select>
+        <select id="b-scope"><option value="">Scope: all</option>
+          <option value="organization">organization</option><option value="environment">environment</option>
+          <option value="cluster">cluster</option><option value="resource">resource</option></select>
+        <select id="b-env"><option value="">Environment: all</option></select>
+        <select id="b-role"><option value="">Role: all</option></select>
+        <select id="b-group"><option value="">Group by: none</option>
+          <option value="principal">principal</option><option value="role">role</option>
+          <option value="access">access level</option><option value="env">environment</option>
+          <option value="rtype">resource type</option></select>
+        <span class="count" id="b-count"></span>
+      </div>
+      <table>
+        <thead><tr id="b-head">
+          <th data-k="principalName">Principal</th>
+          <th data-k="principalType">Type</th>
+          <th data-k="role">Role</th>
+          <th data-k="access">Access</th>
+          <th data-k="envName">Environment</th>
+          <th data-k="clusterName">Cluster</th>
+          <th data-k="resourceType">Resource</th>
+        </tr></thead>
+        <tbody id="b-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-principals">
+    <div class="panel">
+      <h2>Principals<span class="hint">click a row to see its role bindings</span></h2>
+      <div class="toolbar">
+        <input type="search" id="p-search" placeholder="Search name, ID, email…">
+        <select id="p-ptype"><option value="">Type: all</option>
+          <option value="user">users</option><option value="service-account">service accounts</option>
+          <option value="identity-pool">identity pools</option><option value="sso-group">SSO groups</option>
+          <option value="unknown">unknown</option></select>
+        <select id="p-access"><option value="">Max access: all</option>
+          <option value="admin">admin</option><option value="write">write</option>
+          <option value="read">read</option><option value="other">other</option>
+          <option value="none">none</option></select>
+        <span class="count" id="p-count"></span>
+      </div>
+      <table>
+        <thead><tr id="p-head">
+          <th data-k="name">Name</th><th data-k="id">ID</th><th data-k="type">Type</th>
+          <th data-k="detail">Detail</th><th data-k="bindingCount">Bindings</th>
+          <th data-k="maxAccess">Max access</th>
+        </tr></thead>
+        <tbody id="p-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="tab" id="tab-identity">
+    <div class="panel">
+      <h2>Identity providers &amp; pools<span class="hint">external OIDC identities mapped to Confluent principals</span></h2>
+      <div id="i-providers"></div>
+    </div>
+  </section>
+</main>
+
+<script id="report-data" type="application/json">{"generatedAt":"2026-06-10T01:49:25Z","orgId":"a1b2c3d4-0000-4000-8000-0000acme0001","orgName":"Acme Corp","providers":[{"id":"op-okta01","name":"Okta Production","description":"Workforce identity for data platform workloads","issuer":"https://acme.okta.com","jwksUri":"https://acme.okta.com/oauth2/v1/keys","pools":[{"id":"pool-dteng1","name":"data-engineering","description":"Data engineering team workloads","identityClaim":"claims.sub","filter":"claims.groups.exists(g, g == \"data-engineering\")","bindingCount":1},{"id":"pool-anlys1","name":"analytics-team","description":"Analytics notebooks and dashboards","identityClaim":"claims.sub","filter":"claims.groups.exists(g, g == \"analytics\")","bindingCount":2}]},{"id":"op-azure1","name":"Azure AD CI/CD","description":"Entra ID tenant for build and deployment pipelines","issuer":"https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/v2.0","jwksUri":"https://login.microsoftonline.com/11111111-2222-3333-4444-555555555555/discovery/v2.0/keys","pools":[{"id":"pool-cicd01","name":"cicd-prod-deployer","description":"Production deployment pipeline","identityClaim":"claims.azp","filter":"claims.appid == \"9d9e9f00-prod-cicd-app\"","bindingCount":1},{"id":"pool-flink1","name":"flink-jobs","description":"Flink streaming jobs","identityClaim":"claims.azp","filter":"claims.appid == \"7a7b7c00-flink-app\"","bindingCount":2}]}],"principals":[{"id":"pool-anlys1","name":"analytics-team","type":"identity-pool","detail":"via Okta Production","bindingCount":2,"maxAccess":"read"},{"id":"pool-cicd01","name":"cicd-prod-deployer","type":"identity-pool","detail":"via Azure AD CI/CD","bindingCount":1,"maxAccess":"admin"},{"id":"pool-dteng1","name":"data-engineering","type":"identity-pool","detail":"via Okta Production","bindingCount":1,"maxAccess":"write"},{"id":"pool-flink1","name":"flink-jobs","type":"identity-pool","detail":"via Azure AD CI/CD","bindingCount":2,"maxAccess":"write"},{"id":"sa-anlyt01","name":"analytics-readonly","type":"service-account","detail":"Read-only analytics consumers","bindingCount":2,"maxAccess":"read"},{"id":"sa-cicd001","name":"ci-pipeline","type":"service-account","detail":"Terraform / CI automation","bindingCount":1,"maxAccess":"admin"},{"id":"sa-connct1","name":"connect-cluster","type":"service-account","detail":"Managed connectors runtime","bindingCount":1,"maxAccess":"write"},{"id":"sa-monitr1","name":"monitoring-agent","type":"service-account","detail":"Metrics scraper for Datadog","bindingCount":1,"maxAccess":"read"},{"id":"sa-orders1","name":"orders-service","type":"service-account","detail":"Order processing microservice","bindingCount":4,"maxAccess":"write"},{"id":"sa-paymnt1","name":"payments-service","type":"service-account","detail":"Payment processing microservice","bindingCount":2,"maxAccess":"admin"},{"id":"u-alice01","name":"Alice Anders","type":"user","detail":"alice@acme.example","bindingCount":1,"maxAccess":"admin"},{"id":"u-bob0001","name":"Bob Baker","type":"user","detail":"bob@acme.example","bindingCount":1,"maxAccess":"admin"},{"id":"u-carol01","name":"Carol Chen","type":"user","detail":"carol@acme.example","bindingCount":2,"maxAccess":"admin"},{"id":"u-dave001","name":"Dave Diaz","type":"user","detail":"dave@acme.example","bindingCount":2,"maxAccess":"admin"},{"id":"u-erin001","name":"Erin Engel","type":"user","detail":"erin@acme.example","bindingCount":1,"maxAccess":"read"},{"id":"u-frank01","name":"Frank Fox","type":"user","detail":"frank@acme.example","bindingCount":1,"maxAccess":"read"},{"id":"u-grace01","name":"Grace Gupta","type":"user","detail":"grace@acme.example","bindingCount":2,"maxAccess":"admin"},{"id":"u-heidi01","name":"Heidi Huang","type":"user","detail":"heidi@acme.example","bindingCount":1,"maxAccess":"read"}],"environments":[{"id":"env-dev001","name":"dev","clusterCount":1},{"id":"env-stg001","name":"staging","clusterCount":1},{"id":"env-prd001","name":"production","clusterCount":2}],"clusters":[{"id":"lkc-dev001","name":"dev-sandbox","envId":"env-dev001","envName":"dev","cloud":"AWS","region":"us-east-1"},{"id":"lkc-stg001","name":"staging-core","envId":"env-stg001","envName":"staging","cloud":"AWS","region":"us-east-1"},{"id":"lkc-prd001","name":"prod-core","envId":"env-prd001","envName":"production","cloud":"AWS","region":"us-east-1"},{"id":"lkc-prd002","name":"prod-analytics","envId":"env-prd001","envName":"production","cloud":"GCP","region":"us-central1"}],"bindings":[{"id":"rb-mock001","principalId":"u-alice01","principalName":"Alice Anders","principalType":"user","role":"OrganizationAdmin","access":"admin","scopeType":"organization","resourceType":"organization","resourceName":"a1b2c3d4-0000-4000-8000-0000acme0001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"},{"id":"rb-mock002","principalId":"u-heidi01","principalName":"Heidi Huang","principalType":"user","role":"Operator","access":"read","scopeType":"organization","resourceType":"organization","resourceName":"a1b2c3d4-0000-4000-8000-0000acme0001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"},{"id":"rb-mock003","principalId":"sa-monitr1","principalName":"monitoring-agent","principalType":"service-account","role":"MetricsViewer","access":"read","scopeType":"organization","resourceType":"organization","resourceName":"a1b2c3d4-0000-4000-8000-0000acme0001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"},{"id":"rb-mock004","principalId":"u-frank01","principalName":"Frank Fox","principalType":"user","role":"MetricsViewer","access":"read","scopeType":"organization","resourceType":"organization","resourceName":"a1b2c3d4-0000-4000-8000-0000acme0001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001"},{"id":"rb-mock005","principalId":"u-bob0001","principalName":"Bob Baker","principalType":"user","role":"EnvironmentAdmin","access":"admin","scopeType":"environment","envId":"env-prd001","envName":"production","resourceType":"environment","resourceName":"env-prd001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001"},{"id":"rb-mock006","principalId":"sa-cicd001","principalName":"ci-pipeline","principalType":"service-account","role":"EnvironmentAdmin","access":"admin","scopeType":"environment","envId":"env-stg001","envName":"staging","resourceType":"environment","resourceName":"env-stg001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001"},{"id":"rb-mock007","principalId":"pool-cicd01","principalName":"cicd-prod-deployer","principalType":"identity-pool","role":"EnvironmentAdmin","access":"admin","scopeType":"environment","envId":"env-prd001","envName":"production","resourceType":"environment","resourceName":"env-prd001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001"},{"id":"rb-mock008","principalId":"u-dave001","principalName":"Dave Diaz","principalType":"user","role":"EnvironmentAdmin","access":"admin","scopeType":"environment","envId":"env-dev001","envName":"dev","resourceType":"environment","resourceName":"env-dev001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-dev001"},{"id":"rb-mock009","principalId":"pool-dteng1","principalName":"data-engineering","principalType":"identity-pool","role":"DeveloperManage","access":"write","scopeType":"environment","envId":"env-stg001","envName":"staging","resourceType":"environment","resourceName":"env-stg001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001"},{"id":"rb-mock010","principalId":"u-carol01","principalName":"Carol Chen","principalType":"user","role":"CloudClusterAdmin","access":"admin","scopeType":"cluster","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"cloud cluster","resourceName":"lkc-prd001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001"},{"id":"rb-mock011","principalId":"u-carol01","principalName":"Carol Chen","principalType":"user","role":"CloudClusterAdmin","access":"admin","scopeType":"cluster","envId":"env-prd001","envName":"production","clusterId":"lkc-prd002","clusterName":"prod-analytics","resourceType":"cloud cluster","resourceName":"lkc-prd002","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002"},{"id":"rb-mock012","principalId":"sa-connct1","principalName":"connect-cluster","principalType":"service-account","role":"DeveloperManage","access":"write","scopeType":"cluster","envId":"env-stg001","envName":"staging","clusterId":"lkc-stg001","clusterName":"staging-core","resourceType":"cloud cluster","resourceName":"lkc-stg001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001/cloud-cluster=lkc-stg001"},{"id":"rb-mock013","principalId":"u-erin001","principalName":"Erin Engel","principalType":"user","role":"DeveloperRead","access":"read","scopeType":"cluster","envId":"env-dev001","envName":"dev","clusterId":"lkc-dev001","clusterName":"dev-sandbox","resourceType":"cloud cluster","resourceName":"lkc-dev001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-dev001/cloud-cluster=lkc-dev001"},{"id":"rb-mock014","principalId":"sa-orders1","principalName":"orders-service","principalType":"service-account","role":"DeveloperWrite","access":"write","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"topic","resourceName":"orders-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=orders-*"},{"id":"rb-mock015","principalId":"sa-orders1","principalName":"orders-service","principalType":"service-account","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"topic","resourceName":"inventory.events","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=inventory.events"},{"id":"rb-mock016","principalId":"sa-paymnt1","principalName":"payments-service","principalType":"service-account","role":"ResourceOwner","access":"admin","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"topic","resourceName":"payments.transactions","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=payments.transactions"},{"id":"rb-mock017","principalId":"u-grace01","principalName":"Grace Gupta","principalType":"user","role":"ResourceOwner","access":"admin","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"topic","resourceName":"payments-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/topic=payments-*"},{"id":"rb-mock018","principalId":"sa-anlyt01","principalName":"analytics-readonly","principalType":"service-account","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd002","clusterName":"prod-analytics","resourceType":"topic","resourceName":"*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/topic=*"},{"id":"rb-mock019","principalId":"pool-anlys1","principalName":"analytics-team","principalType":"identity-pool","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd002","clusterName":"prod-analytics","resourceType":"topic","resourceName":"events-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/topic=events-*"},{"id":"rb-mock020","principalId":"pool-flink1","principalName":"flink-jobs","principalType":"identity-pool","role":"DeveloperWrite","access":"write","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd002","clusterName":"prod-analytics","resourceType":"topic","resourceName":"flink.derived-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/topic=flink.derived-*"},{"id":"rb-mock021","principalId":"u-dave001","principalName":"Dave Diaz","principalType":"user","role":"DeveloperWrite","access":"write","scopeType":"resource","envId":"env-stg001","envName":"staging","clusterId":"lkc-stg001","clusterName":"staging-core","resourceType":"topic","resourceName":"*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-stg001/cloud-cluster=lkc-stg001/kafka=lkc-stg001/topic=*"},{"id":"rb-mock022","principalId":"sa-anlyt01","principalName":"analytics-readonly","principalType":"service-account","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd002","clusterName":"prod-analytics","resourceType":"consumer group","resourceName":"analytics-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/group=analytics-*"},{"id":"rb-mock023","principalId":"sa-orders1","principalName":"orders-service","principalType":"service-account","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"consumer group","resourceName":"orders-service","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/group=orders-service"},{"id":"rb-mock024","principalId":"pool-flink1","principalName":"flink-jobs","principalType":"identity-pool","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd002","clusterName":"prod-analytics","resourceType":"consumer group","resourceName":"flink-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd002/kafka=lkc-prd002/group=flink-*"},{"id":"rb-mock025","principalId":"sa-orders1","principalName":"orders-service","principalType":"service-account","role":"DeveloperWrite","access":"write","scopeType":"resource","envId":"env-prd001","envName":"production","resourceType":"subject","resourceName":"orders-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/schema-registry=lsrc-prd001/subject=orders-*"},{"id":"rb-mock026","principalId":"pool-anlys1","principalName":"analytics-team","principalType":"identity-pool","role":"DeveloperRead","access":"read","scopeType":"resource","envId":"env-prd001","envName":"production","resourceType":"subject","resourceName":"*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/schema-registry=lsrc-prd001/subject=*"},{"id":"rb-mock027","principalId":"u-grace01","principalName":"Grace Gupta","principalType":"user","role":"DataSteward","access":"write","scopeType":"environment","envId":"env-prd001","envName":"production","resourceType":"environment","resourceName":"env-prd001","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001"},{"id":"rb-mock028","principalId":"sa-paymnt1","principalName":"payments-service","principalType":"service-account","role":"DeveloperWrite","access":"write","scopeType":"resource","envId":"env-prd001","envName":"production","clusterId":"lkc-prd001","clusterName":"prod-core","resourceType":"transactional ID","resourceName":"payments-tx-*","crn":"crn://confluent.cloud/organization=a1b2c3d4-0000-4000-8000-0000acme0001/environment=env-prd001/cloud-cluster=lkc-prd001/kafka=lkc-prd001/transactional-id=payments-tx-*"}]}</script>
+<script>
+"use strict";
+const DATA = JSON.parse(document.getElementById("report-data").textContent);
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const badge = (cls, text) => `<span class="badge ${esc(cls)}">${esc(text)}</span>`;
+const accBadge = a => badge("acc-" + a, a);
+const ptLabel = {user:"user","service-account":"service acct","identity-pool":"identity pool",
+                 "sso-group":"SSO group", unknown:"unknown"};
+const ptBadge = t => badge("pt-" + t, ptLabel[t] || t);
+const ACC_RANK = {none:0, other:1, read:2, write:3, admin:4};
+
+// ---------- tabs ----------
+const tabs = document.getElementById("tabs");
+function showTab(name) {
+  tabs.querySelectorAll("button").forEach(b => b.classList.toggle("active", b.dataset.tab === name));
+  document.querySelectorAll("section.tab").forEach(s => s.classList.toggle("active", s.id === "tab-" + name));
+}
+tabs.addEventListener("click", e => { if (e.target.dataset.tab) showTab(e.target.dataset.tab); });
+
+// ---------- header & overview ----------
+document.getElementById("hdr-sub").textContent =
+  `${DATA.orgName} (${DATA.orgId}) — generated ${DATA.generatedAt}`;
+
+(function overview() {
+  const P = DATA.principals, B = DATA.bindings;
+  const n = (arr, f) => arr.filter(f).length;
+  const cards = [
+    ["Role bindings", B.length], ["Users", n(P, p => p.type === "user")],
+    ["Service accounts", n(P, p => p.type === "service-account")],
+    ["Identity providers", DATA.providers.length],
+    ["Identity pools", DATA.providers.reduce((s,p) => s + p.pools.length, 0)],
+    ["Environments", DATA.environments.length], ["Clusters", DATA.clusters.length],
+    ["Admin principals", n(P, p => p.maxAccess === "admin")],
+  ];
+  document.getElementById("ov-cards").innerHTML = cards.map(([l,v]) =>
+    `<div class="card"><div class="num">${v}</div><div class="lbl">${esc(l)}</div></div>`).join("");
+
+  const admins = new Map();
+  B.filter(b => b.access === "admin").forEach(b => {
+    if (!admins.has(b.principalId)) admins.set(b.principalId, {b, scopes: []});
+    admins.get(b.principalId).scopes.push(scopeLabel(b) + " (" + b.role + ")");
+  });
+  document.getElementById("ov-admins").innerHTML = admins.size === 0
+    ? `<div class="empty">No admin-level role bindings.</div>`
+    : `<table><thead><tr><th>Principal</th><th>Type</th><th>Admin over</th></tr></thead><tbody>` +
+      [...admins.values()].map(({b, scopes}) =>
+        `<tr><td class="nowrap"><b>${esc(b.principalName)}</b> <span class="sub">${esc(b.principalId)}</span></td>` +
+        `<td>${ptBadge(b.principalType)}</td><td>${scopes.map(esc).join("<br>")}</td></tr>`).join("") +
+      `</tbody></table>`;
+
+  document.getElementById("ov-envs").innerHTML =
+    `<table><thead><tr><th>Environment</th><th>ID</th><th>Cluster</th><th>Cluster ID</th><th>Cloud / region</th></tr></thead><tbody>` +
+    DATA.environments.map(e => {
+      const cs = DATA.clusters.filter(c => c.envId === e.id);
+      if (cs.length === 0) return `<tr><td>${esc(e.name)}</td><td class="mono">${esc(e.id)}</td><td colspan="3" class="sub">no clusters</td></tr>`;
+      return cs.map((c,i) =>
+        `<tr><td>${i===0 ? esc(e.name) : ""}</td><td class="mono">${i===0 ? esc(e.id) : ""}</td>` +
+        `<td>${esc(c.name)}</td><td class="mono">${esc(c.id)}</td><td>${esc(c.cloud)} / ${esc(c.region)}</td></tr>`).join("");
+    }).join("") + `</tbody></table>`;
+})();
+
+function scopeLabel(b) {
+  if (b.scopeType === "organization") return "organization";
+  let s = b.envName ? `env ${b.envName}` : (b.envId ? `env ${b.envId}` : "");
+  if (b.clusterName || b.clusterId) s += ` › cluster ${b.clusterName || b.clusterId}`;
+  if (b.scopeType === "resource") s += ` › ${b.resourceType} ${b.resourceName}`;
+  return s || b.resourceType;
+}
+
+// ---------- generic sortable header ----------
+function bindSort(headEl, state, render) {
+  headEl.addEventListener("click", e => {
+    const k = e.target.closest("th")?.dataset.k;
+    if (!k) return;
+    if (state.sortKey === k) state.sortDir = -state.sortDir;
+    else { state.sortKey = k; state.sortDir = 1; }
+    render();
+  });
+}
+function sortArrows(headEl, state) {
+  headEl.querySelectorAll("th").forEach(th => {
+    th.innerHTML = th.innerHTML.replace(/\s*<span class="arrow">.*<\/span>/, "");
+    if (th.dataset.k === state.sortKey)
+      th.innerHTML += `<span class="arrow"> ${state.sortDir > 0 ? "▲" : "▼"}</span>`;
+  });
+}
+function cmp(a, b, key, dir) {
+  let x = a[key], y = b[key];
+  if (key === "access" || key === "maxAccess") { x = ACC_RANK[x]; y = ACC_RANK[y]; }
+  if (typeof x === "string") { x = x.toLowerCase(); y = String(y).toLowerCase(); }
+  return (x < y ? -1 : x > y ? 1 : 0) * dir;
+}
+
+// ---------- role bindings tab ----------
+const bState = {sortKey: "principalName", sortDir: 1};
+const bEls = Object.fromEntries(["search","access","ptype","scope","env","role","group","count","body","head"]
+  .map(k => [k, document.getElementById("b-" + k)]));
+
+[...new Set(DATA.bindings.map(b => b.role))].sort().forEach(r =>
+  bEls.role.insertAdjacentHTML("beforeend", `<option>${esc(r)}</option>`));
+DATA.environments.forEach(e =>
+  bEls.env.insertAdjacentHTML("beforeend", `<option value="${esc(e.id)}">${esc(e.name)}</option>`));
+
+function filteredBindings() {
+  const q = bEls.search.value.trim().toLowerCase();
+  return DATA.bindings.filter(b =>
+    (!bEls.access.value || b.access === bEls.access.value) &&
+    (!bEls.ptype.value || b.principalType === bEls.ptype.value) &&
+    (!bEls.scope.value || b.scopeType === bEls.scope.value) &&
+    (!bEls.env.value || b.envId === bEls.env.value) &&
+    (!bEls.role.value || b.role === bEls.role.value) &&
+    (!q || [b.principalName, b.principalId, b.role, b.resourceName, b.resourceType,
+            b.envName, b.clusterName, b.crn].join(" ").toLowerCase().includes(q)));
+}
+function bindingRow(b) {
+  return `<tr>
+    <td class="nowrap"><b>${esc(b.principalName)}</b><br><span class="sub mono">${esc(b.principalId)}</span></td>
+    <td>${ptBadge(b.principalType)}</td>
+    <td class="nowrap">${esc(b.role)}</td>
+    <td>${accBadge(b.access)}</td>
+    <td class="nowrap">${esc(b.envName || b.envId || "—")}</td>
+    <td class="nowrap">${esc(b.clusterName || b.clusterId || "—")}</td>
+    <td><b>${esc(b.resourceType)}</b> ${esc(b.resourceName)}<div class="crn mono">${esc(b.crn)}</div></td>
+  </tr>`;
+}
+function renderBindings() {
+  const rows = filteredBindings().sort((a,b) => cmp(a, b, bState.sortKey, bState.sortDir));
+  bEls.count.textContent = `${rows.length} of ${DATA.bindings.length} bindings`;
+  sortArrows(bEls.head, bState);
+
+  const g = bEls.group.value;
+  if (!g) {
+    bEls.body.innerHTML = rows.map(bindingRow).join("") ||
+      `<tr><td colspan="7" class="empty">No bindings match.</td></tr>`;
+    return;
+  }
+  const keyFn = {
+    principal: b => `${b.principalName} (${b.principalId})`,
+    role: b => b.role, access: b => b.access,
+    env: b => b.envName || b.envId || "organization-wide",
+    rtype: b => b.resourceType,
+  }[g];
+  const groups = new Map();
+  rows.forEach(b => {
+    const k = keyFn(b);
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(b);
+  });
+  bEls.body.innerHTML = [...groups.keys()].sort((a,b) => a.localeCompare(b)).map(k =>
+    `<tr class="grouphdr"><td colspan="7">${esc(k)}<span class="gcount">${groups.get(k).length}</span></td></tr>` +
+    groups.get(k).map(bindingRow).join("")).join("") ||
+    `<tr><td colspan="7" class="empty">No bindings match.</td></tr>`;
+}
+["search","access","ptype","scope","env","role","group"].forEach(k =>
+  bEls[k].addEventListener("input", renderBindings));
+bindSort(bEls.head, bState, renderBindings);
+renderBindings();
+
+// ---------- principals tab ----------
+const pState = {sortKey: "name", sortDir: 1};
+const pEls = Object.fromEntries(["search","ptype","access","count","body","head"]
+  .map(k => [k, document.getElementById("p-" + k)]));
+const expanded = new Set();
+
+function renderPrincipals() {
+  const q = pEls.search.value.trim().toLowerCase();
+  const rows = DATA.principals.filter(p =>
+    (!pEls.ptype.value || p.type === pEls.ptype.value) &&
+    (!pEls.access.value || p.maxAccess === pEls.access.value) &&
+    (!q || [p.name, p.id, p.detail].join(" ").toLowerCase().includes(q))
+  ).sort((a,b) => cmp(a, b, pState.sortKey, pState.sortDir));
+  pEls.count.textContent = `${rows.length} of ${DATA.principals.length} principals`;
+  sortArrows(pEls.head, pState);
+
+  pEls.body.innerHTML = rows.map(p => {
+    let html = `<tr class="clickable" data-pid="${esc(p.id)}">
+      <td class="nowrap"><b>${esc(p.name)}</b></td><td class="mono">${esc(p.id)}</td>
+      <td>${ptBadge(p.type)}</td><td>${esc(p.detail || "")}</td>
+      <td>${p.bindingCount}</td><td>${accBadge(p.maxAccess)}</td></tr>`;
+    if (expanded.has(p.id)) {
+      const bs = DATA.bindings.filter(b => b.principalId === p.id);
+      html += `<tr class="expand"><td colspan="6">` + (bs.length === 0
+        ? `<span class="sub">No role bindings.</span>`
+        : `<table class="minitable"><thead><tr><th>Role</th><th>Access</th><th>Scope</th><th>CRN pattern</th></tr></thead><tbody>` +
+          bs.map(b => `<tr><td class="nowrap">${esc(b.role)}</td><td>${accBadge(b.access)}</td>` +
+                      `<td>${esc(scopeLabel(b))}</td><td class="crn mono">${esc(b.crn)}</td></tr>`).join("") +
+          `</tbody></table>`) + `</td></tr>`;
+    }
+    return html;
+  }).join("") || `<tr><td colspan="6" class="empty">No principals match.</td></tr>`;
+}
+pEls.body.addEventListener("click", e => {
+  const pid = e.target.closest("tr")?.dataset.pid;
+  if (!pid) return;
+  expanded.has(pid) ? expanded.delete(pid) : expanded.add(pid);
+  renderPrincipals();
+});
+["search","ptype","access"].forEach(k => pEls[k].addEventListener("input", renderPrincipals));
+bindSort(pEls.head, pState, renderPrincipals);
+renderPrincipals();
+
+// ---------- identity providers tab ----------
+document.getElementById("i-providers").innerHTML = DATA.providers.length === 0
+  ? `<div class="empty">No identity providers configured.</div>`
+  : DATA.providers.map(p => `
+  <div class="provider">
+    <div class="phead">
+      <h3>${esc(p.name)} <span class="sub mono">${esc(p.id)}</span></h3>
+      <div class="meta">${esc(p.description || "")}<br>
+        issuer: <code>${esc(p.issuer)}</code> &nbsp; jwks: <code>${esc(p.jwksUri)}</code></div>
+    </div>
+    <div class="pools">${p.pools.length === 0
+      ? `<div class="empty">No identity pools.</div>`
+      : p.pools.map(pool => `
+      <div class="pool">
+        <h4>${esc(pool.name)} <span class="sub mono">${esc(pool.id)}</span></h4>
+        <div class="sub">${esc(pool.description || "")}</div>
+        <div class="kv">identity claim: <code>${esc(pool.identityClaim)}</code></div>
+        <div class="kv">filter: <code>${esc(pool.filter)}</code></div>
+        <div class="kv">${pool.bindingCount} role binding(s) —
+          <a href="#" data-pool="${esc(pool.id)}">view bindings</a></div>
+      </div>`).join("")}
+    </div>
+  </div>`).join("");
+
+document.getElementById("i-providers").addEventListener("click", e => {
+  const poolId = e.target.dataset.pool;
+  if (!poolId) return;
+  e.preventDefault();
+  ["access","ptype","scope","env","role","group"].forEach(k => bEls[k].value = "");
+  bEls.search.value = poolId;
+  renderBindings();
+  showTab("bindings");
+});
+</script>
+</body>
+</html>
